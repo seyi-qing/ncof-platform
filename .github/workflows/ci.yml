@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile check
+        run: python -m compileall -q app api scripts
+
+      - name: Unit tests
+        run: pytest -q
+        env:
+          APP_ENV: test
+          DATABASE_URL: sqlite+pysqlite:///:memory:
+          SECRET_KEY: test-secret-key-not-for-production-use-32
+          PAYMENT_WEBHOOK_SECRET: test-webhook-secret-not-for-prod-32
+          AUDIT_HASH_SECRET: test-audit-secret-not-for-prod-use-32
+          CORS_ORIGINS: http://localhost:3000
+
+      - name: Alembic revision chain
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import re
+          versions = Path("alembic/versions")
+          revs = {}
+          downs = {}
+          for p in versions.glob("*.py"):
+              text = p.read_text()
+              m = re.search(r'revision\s*=\s*["\']([^"\']+)["\']', text)
+              d = re.search(r'down_revision\s*=\s*(.+)', text)
+              if not m:
+                  continue
+              rev = m.group(1)
+              revs[rev] = p.name
+              if d:
+                  raw = d.group(1).strip()
+                  downs[rev] = raw
+          assert "0001_initial" in revs, "missing 0001_initial"
+          assert "0008_election_voting" in revs, "missing 0008"
+          print("Revisions found:", sorted(revs))
+          print("Alembic chain static check OK")
+          PY
