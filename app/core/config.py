@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     payment_webhook_secret: str = "CHANGE_ME_WEBHOOK_SECRET"
     audit_hash_secret: str = "CHANGE_ME_AUDIT_SECRET"
+    # Optional provider secrets (required only when that provider is used)
+    paystack_secret_key: str = ""
+    flw_secret_hash: str = ""
     loan_max_amount: Decimal = Decimal("10000000.00")
     withdrawal_max_amount: Decimal = Decimal("5000000.00")
     access_token_minutes: int = 30
