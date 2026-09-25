@@ -1,12 +1,79 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, case
+from fastapi import APIRouter, Depends, HTTPException, Header
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import User, Member, FinancialTransaction, Meeting, Attendance, MonthlyDues
-from app.security import require_roles
+from app.security import require_roles, hash_password
+from app.core.config import settings
 
 router = APIRouter()
+
+
+class BootstrapIn(BaseModel):
+    email: EmailStr
+    password: str = Field(min_length=12, max_length=128)
+
+
+@router.post("/bootstrap", status_code=201)
+def bootstrap(
+    payload: BootstrapIn,
+    db: Session = Depends(get_db),
+    x_bootstrap_key: str | None = Header(default=None, alias="X-Bootstrap-Key"),
+):
+    """
+    One-time production bootstrap (phone-friendly).
+
+    1. Runs Alembic migrations to head (creates all tables).
+    2. Creates the first admin user.
+
+    Requires header: X-Bootstrap-Key: <same value as SECRET_KEY>
+    Refuses if any user already exists.
+    """
+    if not x_bootstrap_key or x_bootstrap_key != settings.secret_key:
+        raise HTTPException(401, "Invalid or missing X-Bootstrap-Key")
+
+    # Run migrations first (safe to re-run; Alembic is idempotent via alembic_version)
+    try:
+        from alembic.config import Config
+        from alembic import command
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[3]  # repo root from app/api/v1/admin.py
+        cfg = Config(str(root / "alembic.ini"))
+        cfg.set_main_option("sqlalchemy.url", settings.database_url)
+        command.upgrade(cfg, "head")
+    except Exception as exc:
+        raise HTTPException(500, f"Migration failed: {type(exc).__name__}: {exc}") from exc
+
+    # Ensure users table exists and is empty of admins/users
+    try:
+        existing = db.scalar(select(func.count()).select_from(User)) or 0
+    except Exception as exc:
+        raise HTTPException(500, f"Schema still missing after migrate: {exc}") from exc
+
+    if existing > 0:
+        raise HTTPException(409, "Users already exist — bootstrap is one-time only")
+
+    email = payload.email.lower().strip()
+    user = User(
+        email=email,
+        password_hash=hash_password(payload.password),
+        role="admin",
+        is_active=True,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {
+        "status": "ok",
+        "message": "Migrations applied and admin created",
+        "admin_email": user.email,
+        "admin_id": user.id,
+        "next": "POST /api/v1/auth/login with this email and password",
+    }
+
 
 @router.get("/dashboard")
 def dashboard(
