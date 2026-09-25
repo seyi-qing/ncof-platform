@@ -124,6 +124,16 @@ def update_action(action_id: str, payload: ActionItemUpdate, db: Session = Depen
     if item.status == "completed": item.completed_at = now()
     db.commit(); db.refresh(item); return item
 
+@router.get("/elections")
+def list_elections(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(*MANAGERS, "member")),
+):
+    return list(
+        db.scalars(
+            select(Election).order_by(Election.created_at.desc())
+        ).all()
+    )
 
 @router.post("/elections", status_code=201)
 def create_election(payload: ElectionCreate, db: Session = Depends(get_db), _: User = Depends(require_roles("admin", "executive"))):
