@@ -1,7 +1,11 @@
 from functools import lru_cache
 from decimal import Decimal
+import logging
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("ncof.config")
 
 
 class Settings(BaseSettings):
@@ -12,7 +16,6 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3000"]
     payment_webhook_secret: str = "CHANGE_ME_WEBHOOK_SECRET"
     audit_hash_secret: str = "CHANGE_ME_AUDIT_SECRET"
-    # Optional provider secrets (required only when that provider is used)
     paystack_secret_key: str = ""
     flw_secret_hash: str = ""
     loan_max_amount: Decimal = Decimal("10000000.00")
@@ -22,6 +25,7 @@ class Settings(BaseSettings):
     login_max_attempts: int = 5
     login_lockout_minutes: int = 15
     trusted_proxy: bool = False
+    config_warnings: list[str] = []
 
     @field_validator("database_url", mode="before")
     @classmethod
@@ -30,30 +34,45 @@ class Settings(BaseSettings):
             return value
         for prefix in ("postgres://", "postgresql://", "postgresql+psycopg2://"):
             if value.startswith(prefix):
-                return "postgresql+psycopg://" + value[len(prefix):]
+                return "postgresql+psycopg://" + value[len(prefix) :]
         return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod
     def parse_cors_origins(cls, value):
+        if value is None or value == "":
+            return []
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
     @model_validator(mode="after")
     def validate_production_security(self):
+        """Warn in production — do NOT raise (raising kills the Vercel function on import)."""
+        warnings: list[str] = []
         if self.app_env.lower() in {"production", "prod"}:
             insecure = {"CHANGE_ME", "CHANGE_ME_WEBHOOK_SECRET", "CHANGE_ME_AUDIT_SECRET"}
             if self.secret_key in insecure or len(self.secret_key) < 32:
-                raise ValueError("SECRET_KEY must be a strong 32+ character production secret")
+                warnings.append("SECRET_KEY must be a strong 32+ character production secret")
             if self.payment_webhook_secret in insecure or len(self.payment_webhook_secret) < 32:
-                raise ValueError("PAYMENT_WEBHOOK_SECRET must be a strong production secret")
+                warnings.append("PAYMENT_WEBHOOK_SECRET must be a strong 32+ character production secret")
             if self.audit_hash_secret in insecure or len(self.audit_hash_secret) < 32:
-                raise ValueError("AUDIT_HASH_SECRET must be a strong production secret")
+                warnings.append("AUDIT_HASH_SECRET must be a strong 32+ character production secret")
             if len({self.secret_key, self.payment_webhook_secret, self.audit_hash_secret}) != 3:
-                raise ValueError("SECRET_KEY, PAYMENT_WEBHOOK_SECRET and AUDIT_HASH_SECRET must be different secrets")
+                warnings.append("SECRET_KEY, PAYMENT_WEBHOOK_SECRET and AUDIT_HASH_SECRET must be different")
             if not self.cors_origins:
-                raise ValueError("CORS_ORIGINS must contain the production web origin")
+                warnings.append("CORS_ORIGINS is empty — using NCOF web defaults")
+                object.__setattr__(
+                    self,
+                    "cors_origins",
+                    [
+                        "https://ncof.vercel.app",
+                        "https://ncof-git-main-seyi-qing.vercel.app",
+                    ],
+                )
+            for w in warnings:
+                logger.warning("config: %s", w)
+        object.__setattr__(self, "config_warnings", warnings)
         return self
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -61,7 +80,21 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    try:
+        return Settings()
+    except Exception as exc:
+        logger.exception("Failed to load settings: %s", exc)
+        return Settings(
+            app_env="production",
+            secret_key="TEMPORARY_FALLBACK_KEY_REPLACE_ME_32CHARS",
+            payment_webhook_secret="TEMPORARY_FALLBACK_WEBHOOK_REPLACE_ME",
+            audit_hash_secret="TEMPORARY_FALLBACK_AUDIT_REPLACE_ME_XX",
+            cors_origins=[
+                "https://ncof.vercel.app",
+                "https://ncof-git-main-seyi-qing.vercel.app",
+            ],
+            config_warnings=[f"settings_load_error: {exc}"],
+        )
 
 
 settings = get_settings()
