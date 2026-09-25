@@ -2,8 +2,8 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 
+import bcrypt
 import jwt
-from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select
@@ -13,17 +13,18 @@ from app.core.config import settings
 from app.db import get_db
 from app.models import User, RefreshToken
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer = HTTPBearer(auto_error=True)
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    # Use bcrypt directly — passlib 1.7.4 is incompatible with bcrypt>=4.1 on Vercel
+    # (detect_wrap_bug raises "password cannot be longer than 72 bytes").
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return pwd_context.verify(password, password_hash)
+        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
     except Exception:
         return False
 
