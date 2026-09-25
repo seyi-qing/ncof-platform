@@ -14,7 +14,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins or ["*"],
+    allow_origins=settings.cors_origin_list or ["*"],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-Webhook-Signature", "X-Paystack-Signature", "verif-hash", "flutterwave-signature", "Idempotency-Key", "X-Bootstrap-Key"],
@@ -30,7 +30,7 @@ def health():
         "service": "ncof-api",
         "version": app.version,
         "config_warnings": settings.config_warnings,
-        "cors_origins": settings.cors_origins,
+        "cors_origins": settings.cors_origin_list,
     }
 
 

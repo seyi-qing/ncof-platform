@@ -1,11 +1,34 @@
 from functools import lru_cache
 from decimal import Decimal
+import json
 import logging
+from typing import Any
 
-from pydantic import field_validator, model_validator
+from pydantic import field_validator, model_validator, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("ncof.config")
+
+
+def _parse_cors(value: Any) -> list[str]:
+    """Accept JSON array OR comma-separated string from Vercel env."""
+    if value is None or value == "":
+        return []
+    if isinstance(value, list):
+        return [str(x).strip() for x in value if str(x).strip()]
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return []
+        if s.startswith("["):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return [str(x).strip() for x in parsed if str(x).strip()]
+            except json.JSONDecodeError:
+                pass
+        return [item.strip() for item in s.split(",") if item.strip()]
+    return []
 
 
 class Settings(BaseSettings):
@@ -13,7 +36,11 @@ class Settings(BaseSettings):
     app_name: str = "NCOF Platform API"
     secret_key: str = "CHANGE_ME"
     database_url: str = "postgresql+psycopg://ncof:ncof@localhost:5432/ncof"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # Plain str so pydantic-settings does NOT try json.loads on the env var.
+    cors_origins: str = Field(
+        default="http://localhost:3000",
+        description="Comma-separated origins or JSON array string",
+    )
     payment_webhook_secret: str = "CHANGE_ME_WEBHOOK_SECRET"
     audit_hash_secret: str = "CHANGE_ME_AUDIT_SECRET"
     paystack_secret_key: str = ""
@@ -27,6 +54,10 @@ class Settings(BaseSettings):
     trusted_proxy: bool = False
     config_warnings: list[str] = []
 
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return _parse_cors(self.cors_origins)
+
     @field_validator("database_url", mode="before")
     @classmethod
     def normalize_database_url(cls, value: str) -> str:
@@ -37,19 +68,10 @@ class Settings(BaseSettings):
                 return "postgresql+psycopg://" + value[len(prefix) :]
         return value
 
-    @field_validator("cors_origins", mode="before")
-    @classmethod
-    def parse_cors_origins(cls, value):
-        if value is None or value == "":
-            return []
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
-
     @model_validator(mode="after")
     def validate_production_security(self):
-        """Warn in production — do NOT raise (raising kills the Vercel function on import)."""
         warnings: list[str] = []
+        origins = _parse_cors(self.cors_origins)
         if self.app_env.lower() in {"production", "prod"}:
             insecure = {"CHANGE_ME", "CHANGE_ME_WEBHOOK_SECRET", "CHANGE_ME_AUDIT_SECRET"}
             if self.secret_key in insecure or len(self.secret_key) < 32:
@@ -60,15 +82,12 @@ class Settings(BaseSettings):
                 warnings.append("AUDIT_HASH_SECRET must be a strong 32+ character production secret")
             if len({self.secret_key, self.payment_webhook_secret, self.audit_hash_secret}) != 3:
                 warnings.append("SECRET_KEY, PAYMENT_WEBHOOK_SECRET and AUDIT_HASH_SECRET must be different")
-            if not self.cors_origins:
-                warnings.append("CORS_ORIGINS is empty — using NCOF web defaults")
+            if not origins:
+                warnings.append("CORS_ORIGINS empty — using NCOF web defaults")
                 object.__setattr__(
                     self,
                     "cors_origins",
-                    [
-                        "https://ncof.vercel.app",
-                        "https://ncof-git-main-seyi-qing.vercel.app",
-                    ],
+                    "https://ncof.vercel.app,https://ncof-git-main-seyi-qing.vercel.app",
                 )
             for w in warnings:
                 logger.warning("config: %s", w)
@@ -89,10 +108,7 @@ def get_settings() -> Settings:
             secret_key="TEMPORARY_FALLBACK_KEY_REPLACE_ME_32CHARS",
             payment_webhook_secret="TEMPORARY_FALLBACK_WEBHOOK_REPLACE_ME",
             audit_hash_secret="TEMPORARY_FALLBACK_AUDIT_REPLACE_ME_XX",
-            cors_origins=[
-                "https://ncof.vercel.app",
-                "https://ncof-git-main-seyi-qing.vercel.app",
-            ],
+            cors_origins="https://ncof.vercel.app,https://ncof-git-main-seyi-qing.vercel.app",
             config_warnings=[f"settings_load_error: {exc}"],
         )
 
