@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import get_db, engine
 from app.models import User, Member, FinancialTransaction, Meeting, Attendance, MonthlyDues
 from app.security import require_roles, hash_password
 from app.core.config import settings
@@ -14,6 +14,34 @@ router = APIRouter()
 class BootstrapIn(BaseModel):
     email: EmailStr
     password: str = Field(min_length=12, max_length=128)
+
+
+def _repo_root():
+    from pathlib import Path
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[3],
+        here.parents[2],
+        Path.cwd(),
+        Path("/var/task"),
+    ]
+    for root in candidates:
+        if (root / "alembic.ini").exists() and (root / "alembic" / "versions").exists():
+            return root
+    return here.parents[3]
+
+
+def _prepare_alembic_version_column():
+    """Widen alembic_version.version_num if the table already exists (legacy default is VARCHAR(32))."""
+    with engine.begin() as conn:
+        exists = conn.execute(text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'alembic_version'"
+        )).scalar()
+        if exists:
+            conn.execute(text(
+                "ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(64)"
+            ))
 
 
 @router.post("/bootstrap", status_code=201)
@@ -34,20 +62,23 @@ def bootstrap(
     if not x_bootstrap_key or x_bootstrap_key != settings.secret_key:
         raise HTTPException(401, "Invalid or missing X-Bootstrap-Key")
 
-    # Run migrations first (safe to re-run; Alembic is idempotent via alembic_version)
+    try:
+        _prepare_alembic_version_column()
+    except Exception:
+        pass
+
     try:
         from alembic.config import Config
         from alembic import command
-        from pathlib import Path
 
-        root = Path(__file__).resolve().parents[3]  # repo root from app/api/v1/admin.py
+        root = _repo_root()
         cfg = Config(str(root / "alembic.ini"))
         cfg.set_main_option("sqlalchemy.url", settings.database_url)
+        cfg.set_main_option("script_location", str(root / "alembic"))
         command.upgrade(cfg, "head")
     except Exception as exc:
         raise HTTPException(500, f"Migration failed: {type(exc).__name__}: {exc}") from exc
 
-    # Ensure users table exists and is empty of admins/users
     try:
         existing = db.scalar(select(func.count()).select_from(User)) or 0
     except Exception as exc:

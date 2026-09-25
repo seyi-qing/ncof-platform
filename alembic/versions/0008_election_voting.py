@@ -4,7 +4,7 @@ import sqlalchemy as sa
 from uuid import uuid4
 
 revision = "0008_election_voting"
-down_revision = "0007_merge_hardening_member_experience"
+down_revision = "0007_merge"
 branch_labels = None
 depends_on = None
 
