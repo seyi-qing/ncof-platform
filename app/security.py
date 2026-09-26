@@ -13,82 +13,176 @@ from app.core.config import settings
 from app.db import get_db
 from app.models import User, RefreshToken
 
+
 bearer = HTTPBearer(auto_error=True)
 
 
 def hash_password(password: str) -> str:
     # Use bcrypt directly — passlib 1.7.4 is incompatible with bcrypt>=4.1 on Vercel
     # (detect_wrap_bug raises "password cannot be longer than 72 bytes").
-    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt(rounds=12)).decode("utf-8")
+    return bcrypt.hashpw(
+        password.encode("utf-8"),
+        bcrypt.gensalt(rounds=12),
+    ).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     try:
-        return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+        return bcrypt.checkpw(
+            password.encode("utf-8"),
+            password_hash.encode("utf-8"),
+        )
     except Exception:
         return False
 
 
 def create_access_token(user_id: str, role: str) -> str:
     now = datetime.now(timezone.utc)
+
     payload = {
         "sub": user_id,
         "role": role,
         "iat": now,
-        "exp": now + timedelta(minutes=settings.access_token_minutes),
+        "exp": now + timedelta(
+            minutes=settings.access_token_minutes
+        ),
     }
-    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
+
+    return jwt.encode(
+        payload,
+        settings.secret_key,
+        algorithm="HS256",
+    )
+
+
+def _decode_current_user(
+    credentials: HTTPAuthorizationCredentials,
+    db: Session,
+) -> User:
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            settings.secret_key,
+            algorithms=["HS256"],
+        )
+
+        user_id = payload["sub"]
+
+        if not isinstance(user_id, str):
+            raise ValueError
+
+    except (
+        jwt.InvalidTokenError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+
+    user = db.get(User, user_id)
+
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=401,
+            detail="Inactive user",
+        )
+
+    return user
 
 
 def current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer),
     db: Session = Depends(get_db),
 ) -> User:
-    try:
-        payload = jwt.decode(credentials.credentials, settings.secret_key, algorithms=["HS256"])
-        user_id = payload["sub"]
-        if not isinstance(user_id, str):
-            raise ValueError
-    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token")
-    user = db.get(User, user_id)
-    if not user or not user.is_active:
-        raise HTTPException(status_code=401, detail="Inactive user")
+    user = _decode_current_user(credentials, db)
+
+    if user.must_change_password:
+        raise HTTPException(
+            status_code=403,
+            detail="Password change required before accessing the platform",
+        )
+
     return user
 
 
+def current_user_allow_password_change(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Authentication dependency specifically for the password-change endpoint.
+
+    A user may still authenticate while must_change_password=True,
+    because they need access to this endpoint to replace the temporary
+    password with their own password.
+    """
+    return _decode_current_user(credentials, db)
+
+
 def require_roles(*roles):
-    def dependency(user: User = Depends(current_user)):
+    def dependency(
+        user: User = Depends(current_user),
+    ):
         if user.role not in roles:
-            raise HTTPException(status_code=403, detail="Insufficient permission")
+            raise HTTPException(
+                status_code=403,
+                detail="Insufficient permission",
+            )
+
         return user
+
     return dependency
 
 
 def issue_refresh_token(db: Session, user_id: str):
     raw = secrets.token_urlsafe(48)
+
     row = RefreshToken(
         user_id=user_id,
-        token_hash=hashlib.sha256(raw.encode()).hexdigest(),
-        expires_at=datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_days),
+        token_hash=hashlib.sha256(
+            raw.encode()
+        ).hexdigest(),
+        expires_at=datetime.now(timezone.utc)
+        + timedelta(days=settings.refresh_token_days),
     )
+
     db.add(row)
     db.flush()
+
     return raw, row
 
 
 def rotate_refresh_token(db: Session, raw_token: str):
-    digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    digest = hashlib.sha256(
+        raw_token.encode()
+    ).hexdigest()
+
     row = db.scalar(
         select(RefreshToken)
-        .where(RefreshToken.token_hash == digest)
+        .where(
+            RefreshToken.token_hash == digest
+        )
         .with_for_update()
     )
+
     now = datetime.now(timezone.utc)
-    if not row or row.revoked_at or row.expires_at <= now:
+
+    if (
+        not row
+        or row.revoked_at
+        or row.expires_at <= now
+    ):
         return None
 
-    new_raw, new_row = issue_refresh_token(db, row.user_id)
+    new_raw, new_row = issue_refresh_token(
+        db,
+        row.user_id,
+    )
+
     row.revoked_at = now
     row.replaced_by_id = new_row.id
+
     return new_raw, new_row
