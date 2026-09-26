@@ -106,6 +106,65 @@ def bootstrap(
     }
 
 
+@router.post("/migrate")
+def migrate(
+    x_bootstrap_key: str | None = Header(default=None, alias="X-Bootstrap-Key"),
+):
+    """
+    Apply pending Alembic migrations to head (phone-friendly).
+
+    Does NOT create users. Safe to call repeatedly.
+    Requires header: X-Bootstrap-Key: <same value as SECRET_KEY>
+    """
+    if not x_bootstrap_key or x_bootstrap_key != settings.secret_key:
+        raise HTTPException(401, "Invalid or missing X-Bootstrap-Key")
+
+    try:
+        _prepare_alembic_version_column()
+    except Exception:
+        pass
+
+    try:
+        from alembic.config import Config
+        from alembic import command
+        from alembic.runtime.migration import MigrationContext
+
+        root = _repo_root()
+        cfg = Config(str(root / "alembic.ini"))
+        cfg.set_main_option("sqlalchemy.url", settings.database_url)
+        cfg.set_main_option("script_location", str(root / "alembic"))
+
+        before = None
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            before = ctx.get_current_revision()
+
+        command.upgrade(cfg, "head")
+
+        after = None
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            after = ctx.get_current_revision()
+
+        # Ensure critical column exists even if stamp was inconsistent
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS "
+                "must_change_password BOOLEAN NOT NULL DEFAULT false"
+            ))
+
+        return {
+            "status": "ok",
+            "message": "Migrations applied",
+            "revision_before": before,
+            "revision_after": after,
+            "head": "0009_password_security",
+            "next": "POST /api/v1/auth/login",
+        }
+    except Exception as exc:
+        raise HTTPException(500, f"Migration failed: {type(exc).__name__}: {exc}") from exc
+
+
 @router.get("/dashboard")
 def dashboard(
     db: Session = Depends(get_db),
