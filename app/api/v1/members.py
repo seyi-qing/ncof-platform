@@ -9,6 +9,7 @@ from app.db import get_db
 from app.models import Member, User
 from app.schemas import (
     MemberCreate,
+    MemberUpdate,
     MemberOut,
     MemberAccountCreate,
     MemberAccountOut,
@@ -135,6 +136,78 @@ def create_member(
     )
 
 
+@router.patch("/{member_id}", response_model=MemberOut)
+def update_member(
+    member_id: str,
+    payload: MemberUpdate,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_roles("admin", "executive", "secretary")),
+):
+    """Update member registry fields (name, email, phone, status)."""
+    member = db.get(Member, member_id)
+    if not member:
+        raise HTTPException(404, "Member not found")
+
+    before = {
+        "full_name": member.full_name,
+        "email": member.email,
+        "phone": member.phone,
+        "membership_status": member.membership_status,
+    }
+
+    data = payload.model_dump(exclude_unset=True)
+    if "full_name" in data and data["full_name"] is not None:
+        member.full_name = data["full_name"].strip()
+    if "email" in data:
+        new_email = data["email"]
+        if new_email is not None:
+            new_email = str(new_email).lower().strip()
+            if member.user_id:
+                linked = db.get(User, member.user_id)
+                if linked:
+                    clash = db.scalar(
+                        select(User).where(
+                            User.email == new_email,
+                            User.id != linked.id,
+                        )
+                    )
+                    if clash:
+                        raise HTTPException(409, "Another login already uses that email")
+                    linked.email = new_email
+        member.email = new_email
+    if "phone" in data:
+        member.phone = data["phone"]
+    if "membership_status" in data and data["membership_status"] is not None:
+        member.membership_status = data["membership_status"]
+
+    write_audit(
+        db,
+        actor_user_id=admin_user.id,
+        action="member_updated",
+        entity_type="member",
+        entity_id=member.id,
+        before=before,
+        after={
+            "full_name": member.full_name,
+            "email": member.email,
+            "phone": member.phone,
+            "membership_status": member.membership_status,
+        },
+    )
+    db.commit()
+    db.refresh(member)
+    return MemberOut(
+        id=member.id,
+        member_no=member.member_no,
+        full_name=member.full_name,
+        email=member.email,
+        phone=member.phone,
+        membership_status=member.membership_status,
+        joined_at=member.joined_at,
+        has_login_account=bool(member.user_id),
+    )
+
+
 @router.post(
     "/{member_id}/account",
     response_model=MemberAccountOut,
@@ -178,15 +251,23 @@ def create_member_account(
             "A login account already exists for this email address.",
         )
 
+    assigned_role = (payload.role or "member").strip().lower()
+    allowed_roles = {
+        "member",
+        "treasurer",
+        "executive",
+        "secretary",
+        "auditor",
+        "admin",
+    }
+    if assigned_role not in allowed_roles:
+        raise HTTPException(400, f"Invalid role: {assigned_role}")
+
     user = User(
         email=email,
         password_hash=hash_password(payload.password),
-        role="member",
+        role=assigned_role,
         is_active=True,
-
-        # Security:
-        # The password supplied by the administrator is temporary.
-        # The member must replace it before accessing the platform.
         must_change_password=True,
     )
 
