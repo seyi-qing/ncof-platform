@@ -42,7 +42,18 @@ def member_dashboard(db: Session = Depends(get_db), user: User = Depends(current
 
 @router.get("/notifications")
 def notifications(db: Session = Depends(get_db), user: User = Depends(current_user)):
-    return list(db.scalars(select(Notification).where(or_(Notification.user_id == user.id, Notification.member_id == select(Member.id).where(Member.user_id == user.id).scalar_subquery())).order_by(Notification.created_at.desc()).limit(100)).all())
+    member = db.scalar(select(Member).where(Member.user_id == user.id))
+    cond = [Notification.user_id == user.id]
+    if member:
+        cond.append(Notification.member_id == member.id)
+    return list(
+        db.scalars(
+            select(Notification)
+            .where(or_(*cond))
+            .order_by(Notification.created_at.desc())
+            .limit(100)
+        ).all()
+    )
 
 @router.post("/notifications/{notification_id}/read")
 def mark_read(notification_id: str, db: Session = Depends(get_db), user: User = Depends(current_user)):
@@ -63,5 +74,33 @@ def update_preferences(payload: NotificationPreferenceUpdate, db: Session = Depe
 @router.post("/notifications/broadcast", status_code=201)
 def broadcast(payload: BroadcastNotificationIn, db: Session = Depends(get_db), user: User = Depends(require_roles("admin", "executive", "secretary"))):
     members = list(db.scalars(select(Member).where(Member.membership_status == "active", Member.user_id.is_not(None))).all())
-    rows = [Notification(id=str(uuid4()), member_id=m.id, user_id=m.user_id, title=payload.title, body=payload.body, notification_type=payload.notification_type, priority=payload.priority) for m in members]
-    db.add_all(rows); db.commit(); return {"created": len(rows), "created_by": user.id}
+    rows = [
+        Notification(
+            id=str(uuid4()),
+            member_id=m.id,
+            user_id=m.user_id,
+            title=payload.title,
+            body=payload.body,
+            notification_type=payload.notification_type,
+            priority=payload.priority,
+        )
+        for m in members
+    ]
+    # Always leave a copy for the broadcaster so staff inbox is not empty
+    actor_member = db.scalar(select(Member).where(Member.user_id == user.id))
+    already = {m.user_id for m in members}
+    if user.id not in already:
+        rows.append(
+            Notification(
+                id=str(uuid4()),
+                member_id=actor_member.id if actor_member else None,
+                user_id=user.id,
+                title=payload.title,
+                body=payload.body,
+                notification_type=payload.notification_type,
+                priority=payload.priority,
+            )
+        )
+    db.add_all(rows)
+    db.commit()
+    return {"created": len(rows), "created_by": user.id}
