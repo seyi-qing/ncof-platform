@@ -78,6 +78,12 @@ class MeetingCreate(BaseModel):
     location: str | None = None
 
 
+class MeetingUpdate(BaseModel):
+    title: str | None = Field(default=None, min_length=2, max_length=200)
+    meeting_date: datetime | None = None
+    location: str | None = None
+
+
 class AttendanceIn(BaseModel):
     member_id: str
     status: str = Field(
