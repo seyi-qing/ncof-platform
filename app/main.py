@@ -8,7 +8,7 @@ from app.api.v1.router import api_router
 
 app = FastAPI(
     title="NCOF Platform API",
-    version="1.7.0",
+    version="1.8.0",
     description="Membership, attendance, dues, savings, governance, financial operations and member experience API.",
 )
 
