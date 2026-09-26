@@ -180,6 +180,15 @@ def update_member(
         member.phone = data["phone"]
     if "membership_status" in data and data["membership_status"] is not None:
         member.membership_status = data["membership_status"]
+        # Tie login lockout to membership status:
+        # suspended → cannot login; active → restore login; inactive leaves is_active unchanged
+        if member.user_id:
+            linked = db.get(User, member.user_id)
+            if linked:
+                if member.membership_status == "suspended":
+                    linked.is_active = False
+                elif member.membership_status == "active":
+                    linked.is_active = True
 
     write_audit(
         db,
