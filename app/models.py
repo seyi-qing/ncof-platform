@@ -363,6 +363,7 @@ class AssociationDocument(Base):
     storage_url: Mapped[str] = mapped_column(String(1000))
     description: Mapped[str | None] = mapped_column(Text)
     uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, )
 
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
@@ -420,3 +421,63 @@ class LoginAttempt(Base):
             name="uq_login_attempt_email_ip",
         ),
     )
+
+
+class Announcement(Base):
+    __tablename__ = "announcements"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    audience: Mapped[str] = mapped_column(String(50))
+    published: Mapped[bool] = mapped_column(Boolean, default=False)
+    published_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id")
+    )
+    published_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+    member_id: Mapped[str | None] = mapped_column(
+        ForeignKey("members.id"),
+        index=True,
+    )
+    user_id: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id"),
+        index=True,
+    )
+    title: Mapped[str] = mapped_column(String(200))
+    body: Mapped[str] = mapped_column(Text)
+    notification_type: Mapped[str] = mapped_column(
+        String(50),
+        index=True,
+    )
+    priority: Mapped[str] = mapped_column(String(20))
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
+
+
