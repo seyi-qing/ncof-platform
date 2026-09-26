@@ -182,6 +182,11 @@ def create_member_account(
         password_hash=hash_password(payload.password),
         role="member",
         is_active=True,
+
+        # Security:
+        # The password supplied by the administrator is temporary.
+        # The member must replace it before accessing the platform.
+        must_change_password=True,
     )
 
     db.add(user)
@@ -190,12 +195,13 @@ def create_member_account(
     member.user_id = user.id
 
     db.commit()
+
     db.refresh(member)
     db.refresh(user)
 
     return MemberAccountOut(
         status="ok",
-        message="Login account created successfully.",
+        message="Login account created successfully. The member must change the temporary password before accessing the platform.",
         member_id=member.id,
         member_no=member.member_no,
         email=user.email,
