@@ -481,3 +481,58 @@ class Notification(Base):
 
 
 
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
+
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id"),
+        unique=True,
+        index=True,
+    )
+
+    in_app_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    email_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    dues_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    savings_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    loans_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    welfare_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    governance_enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        default=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+
