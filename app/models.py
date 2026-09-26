@@ -7,17 +7,30 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
+
 def utcnow():
     return datetime.now(timezone.utc)
 
+
 class User(Base):
     __tablename__ = "users"
+
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(50), default="member", index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # Security: newly created member accounts must change their
+    # temporary password before accessing the normal platform.
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class Member(Base):
     __tablename__ = "members"
@@ -31,6 +44,7 @@ class Member(Base):
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class Meeting(Base):
     __tablename__ = "meetings"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -38,6 +52,7 @@ class Meeting(Base):
     meeting_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     location: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(30), default="scheduled")
+
 
 class Attendance(Base):
     __tablename__ = "attendance"
@@ -49,6 +64,7 @@ class Attendance(Base):
     recorded_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     __table_args__ = (UniqueConstraint("meeting_id", "member_id", name="uq_attendance_meeting_member"),)
 
+
 class Account(Base):
     __tablename__ = "accounts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -57,6 +73,7 @@ class Account(Base):
     currency: Mapped[str] = mapped_column(String(3), default="NGN")
     status: Mapped[str] = mapped_column(String(20), default="active")
     __table_args__ = (UniqueConstraint("member_id", "account_type", name="uq_member_account_type"),)
+
 
 class FinancialTransaction(Base):
     __tablename__ = "financial_transactions"
@@ -74,6 +91,7 @@ class FinancialTransaction(Base):
     reversed_by_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("financial_transactions.id"))
     reversal_of_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("financial_transactions.id"))
 
+
 class LedgerEntry(Base):
     __tablename__ = "ledger_entries"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -82,6 +100,7 @@ class LedgerEntry(Base):
     debit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     credit: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class MonthlyDues(Base):
     __tablename__ = "monthly_dues"
@@ -94,6 +113,7 @@ class MonthlyDues(Base):
     status: Mapped[str] = mapped_column(String(20), default="unpaid")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("member_id", "year", "month", name="uq_member_dues_month"),)
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -109,6 +129,7 @@ class AuditLog(Base):
     entry_hash: Mapped[str] = mapped_column(String(64), default="pending")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class WithdrawalRequest(Base):
     __tablename__ = "withdrawal_requests"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -120,6 +141,7 @@ class WithdrawalRequest(Base):
     decided_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     decision_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class LoanApplication(Base):
     __tablename__ = "loan_applications"
@@ -137,6 +159,7 @@ class LoanApplication(Base):
     disbursed_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("financial_transactions.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class LoanRepaymentSchedule(Base):
     __tablename__ = "loan_repayment_schedules"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -147,6 +170,7 @@ class LoanRepaymentSchedule(Base):
     amount_paid: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=0)
     status: Mapped[str] = mapped_column(String(20), default="open")
     __table_args__ = (UniqueConstraint("loan_id", "installment_no", name="uq_loan_installment"),)
+
 
 class WelfareClaim(Base):
     __tablename__ = "welfare_claims"
@@ -162,6 +186,7 @@ class WelfareClaim(Base):
     disbursed_transaction_id: Mapped[str | None] = mapped_column(ForeignKey("financial_transactions.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class Receipt(Base):
     __tablename__ = "receipts"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -169,12 +194,14 @@ class Receipt(Base):
     receipt_no: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class IdempotencyKey(Base):
     __tablename__ = "idempotency_keys"
     key: Mapped[str] = mapped_column(String(120), primary_key=True)
     scope: Mapped[str] = mapped_column(String(120), index=True)
     response_json: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class PaymentWebhookEvent(Base):
     __tablename__ = "payment_webhook_events"
@@ -188,6 +215,7 @@ class PaymentWebhookEvent(Base):
     status: Mapped[str] = mapped_column(String(30), default="received")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class Committee(Base):
     __tablename__ = "committees"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -195,6 +223,7 @@ class Committee(Base):
     description: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class CommitteeMember(Base):
     __tablename__ = "committee_members"
@@ -205,6 +234,7 @@ class CommitteeMember(Base):
     start_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     end_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint("committee_id", "member_id", name="uq_committee_member"),)
+
 
 class MeetingAgendaItem(Base):
     __tablename__ = "meeting_agenda_items"
@@ -217,6 +247,7 @@ class MeetingAgendaItem(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("meeting_id", "item_no", name="uq_meeting_agenda_no"),)
 
+
 class MeetingMinute(Base):
     __tablename__ = "meeting_minutes"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -227,6 +258,7 @@ class MeetingMinute(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class Resolution(Base):
     __tablename__ = "resolutions"
@@ -240,6 +272,7 @@ class Resolution(Base):
     adopted_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
     adopted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class ActionItem(Base):
     __tablename__ = "action_items"
@@ -255,6 +288,7 @@ class ActionItem(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class Election(Base):
     __tablename__ = "elections"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -265,6 +299,7 @@ class Election(Base):
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
+
 class ElectionCandidate(Base):
     __tablename__ = "election_candidates"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -274,6 +309,7 @@ class ElectionCandidate(Base):
     position_id: Mapped[str | None] = mapped_column(ForeignKey("election_positions.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("election_id", "member_id", "position", name="uq_election_candidate"),)
+
 
 class ElectionPosition(Base):
     __tablename__ = "election_positions"
@@ -286,6 +322,7 @@ class ElectionPosition(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("election_id", "name", name="uq_election_position_name"),)
 
+
 class ElectionParticipation(Base):
     __tablename__ = "election_participation"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -294,12 +331,14 @@ class ElectionParticipation(Base):
     voted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("election_id", "member_id", name="uq_election_participation_member"),)
 
+
 class ElectionBallot(Base):
     __tablename__ = "election_ballots"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     election_id: Mapped[str] = mapped_column(ForeignKey("elections.id"), index=True)
     receipt_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     cast_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
 
 class ElectionBallotSelection(Base):
     __tablename__ = "election_ballot_selections"
@@ -310,6 +349,7 @@ class ElectionBallotSelection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     __table_args__ = (UniqueConstraint("ballot_id", "position_id", name="uq_ballot_position"),)
 
+
 class AssociationDocument(Base):
     __tablename__ = "association_documents"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
@@ -317,62 +357,4 @@ class AssociationDocument(Base):
     document_type: Mapped[str] = mapped_column(String(80), index=True)
     storage_url: Mapped[str] = mapped_column(String(1000))
     description: Mapped[str | None] = mapped_column(Text)
-    uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-class Announcement(Base):
-    __tablename__ = "announcements"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    title: Mapped[str] = mapped_column(String(200))
-    body: Mapped[str] = mapped_column(Text)
-    audience: Mapped[str] = mapped_column(String(50), default="all_members")
-    published: Mapped[bool] = mapped_column(Boolean, default=False)
-    published_by: Mapped[str | None] = mapped_column(ForeignKey("users.id"))
-    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-class Notification(Base):
-    __tablename__ = "notifications"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    member_id: Mapped[str | None] = mapped_column(ForeignKey("members.id"), index=True)
-    user_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)
-    title: Mapped[str] = mapped_column(String(200))
-    body: Mapped[str] = mapped_column(Text)
-    notification_type: Mapped[str] = mapped_column(String(50), index=True)
-    priority: Mapped[str] = mapped_column(String(20), default="normal")
-    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-class NotificationPreference(Base):
-    __tablename__ = "notification_preferences"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
-    in_app_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    email_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    dues_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    savings_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    loans_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    welfare_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    governance_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    replaced_by_id: Mapped[str | None] = mapped_column(ForeignKey("refresh_tokens.id"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-
-class LoginAttempt(Base):
-    __tablename__ = "login_attempts"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    email: Mapped[str] = mapped_column(String(320), index=True)
-    ip_address: Mapped[str | None] = mapped_column(String(64), index=True)
-    failed_count: Mapped[int] = mapped_column(Integer, default=0)
-    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    last_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    __table_args__ = (UniqueConstraint("email", "ip_address", name="uq_login_attempt_email_ip"),)
+    uploaded_by: Mapped
