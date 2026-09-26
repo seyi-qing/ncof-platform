@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import write_audit
 from app.db import get_db
 from app.models import Member, User
 from app.schemas import (
@@ -143,7 +144,7 @@ def create_member_account(
     member_id: str,
     payload: MemberAccountCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("admin")),
+    admin_user: User = Depends(require_roles("admin")),
 ):
     member = db.get(Member, member_id)
 
@@ -193,6 +194,22 @@ def create_member_account(
     db.flush()
 
     member.user_id = user.id
+
+    write_audit(
+        db,
+        actor_user_id=admin_user.id,
+        action="member_login_account_created",
+        entity_type="member",
+        entity_id=member.id,
+        after={
+            "member_id": member.id,
+            "member_no": member.member_no,
+            "user_id": user.id,
+            "email": user.email,
+            "role": user.role,
+            "must_change_password": True,
+        },
+    )
 
     db.commit()
 
