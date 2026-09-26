@@ -32,7 +32,16 @@ def my_member_profile(
             "Member profile not linked to this account",
         )
 
-    return member
+    return MemberOut(
+        id=member.id,
+        member_no=member.member_no,
+        full_name=member.full_name,
+        email=member.email,
+        phone=member.phone,
+        membership_status=member.membership_status,
+        joined_at=member.joined_at,
+        has_login_account=bool(member.user_id),
+    )
 
 
 @router.get("", response_model=list[MemberOut])
@@ -48,11 +57,25 @@ def list_members(
         )
     ),
 ):
-    return list(
+    members = list(
         db.scalars(
             select(Member).order_by(Member.full_name)
         ).all()
     )
+
+    return [
+        MemberOut(
+            id=member.id,
+            member_no=member.member_no,
+            full_name=member.full_name,
+            email=member.email,
+            phone=member.phone,
+            membership_status=member.membership_status,
+            joined_at=member.joined_at,
+            has_login_account=bool(member.user_id),
+        )
+        for member in members
+    ]
 
 
 @router.post(
@@ -99,7 +122,16 @@ def create_member(
     db.commit()
     db.refresh(member)
 
-    return member
+    return MemberOut(
+        id=member.id,
+        member_no=member.member_no,
+        full_name=member.full_name,
+        email=member.email,
+        phone=member.phone,
+        membership_status=member.membership_status,
+        joined_at=member.joined_at,
+        has_login_account=False,
+    )
 
 
 @router.post(
@@ -158,6 +190,8 @@ def create_member_account(
     member.user_id = user.id
 
     db.commit()
+    db.refresh(member)
+    db.refresh(user)
 
     return MemberAccountOut(
         status="ok",
