@@ -352,9 +352,14 @@ class ElectionBallotSelection(Base):
 
 class AssociationDocument(Base):
     __tablename__ = "association_documents"
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    id: Mapped[str] = mapped_column(
+        String(36),
+        primary_key=True,
+        default=lambda: str(uuid.uuid4()),
+    )
     title: Mapped[str] = mapped_column(String(200))
     document_type: Mapped[str] = mapped_column(String(80), index=True)
     storage_url: Mapped[str] = mapped_column(String(1000))
     description: Mapped[str | None] = mapped_column(Text)
-    uploaded_by: Mapped
+    uploaded_by: Mapped[str] = mapped_column(ForeignKey("users.id"))
