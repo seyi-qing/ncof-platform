@@ -36,8 +36,9 @@ class MemberOut(BaseModel):
     phone: str | None
     membership_status: str
     joined_at: datetime
+    has_login_account: bool = False
     model_config = {"from_attributes": True}
-
+    
 class MeetingCreate(BaseModel):
     title: str
     meeting_date: datetime
