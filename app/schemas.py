@@ -16,6 +16,18 @@ class MemberCreate(BaseModel):
     email: EmailStr | None = None
     phone: str | None = None
 
+class MemberAccountCreate(BaseModel):
+    password: str = Field(min_length=12, max_length=128)
+
+class MemberAccountOut(BaseModel):
+    status: str
+    message: str
+    member_id: str
+    member_no: str
+    email: str
+    user_id: str
+    role: str
+
 class MemberOut(BaseModel):
     id: str
     member_no: str
