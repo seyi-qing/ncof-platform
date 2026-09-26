@@ -36,6 +36,12 @@ class MemberUpdate(BaseModel):
     )
 
 
+class RoleUpdate(BaseModel):
+    role: str = Field(
+        pattern="^(member|treasurer|executive|secretary|auditor|admin)$",
+    )
+
+
 class MemberAccountCreate(BaseModel):
     password: str = Field(min_length=12, max_length=128)
     role: str = Field(
