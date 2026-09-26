@@ -13,6 +13,7 @@ from app.schemas import (
     MemberOut,
     MemberAccountCreate,
     MemberAccountOut,
+    RoleUpdate,
 )
 from app.security import require_roles, current_user, hash_password
 
@@ -306,3 +307,36 @@ def create_member_account(
         user_id=user.id,
         role=user.role,
     )
+
+
+@router.patch("/{member_id}/role")
+def set_member_role(
+    member_id: str,
+    payload: RoleUpdate,
+    db: Session = Depends(get_db),
+    admin_user: User = Depends(require_roles("admin")),
+):
+    """Admin: change login role for a member who already has an account."""
+    member = db.get(Member, member_id)
+    if not member:
+        raise HTTPException(404, "Member not found")
+    if not member.user_id:
+        raise HTTPException(400, "Member has no login account yet")
+    user = db.get(User, member.user_id)
+    if not user:
+        raise HTTPException(404, "Linked user not found")
+
+    role = payload.role.strip().lower()
+    before = user.role
+    user.role = role
+    write_audit(
+        db,
+        actor_user_id=admin_user.id,
+        action="member_role_changed",
+        entity_type="user",
+        entity_id=user.id,
+        before={"role": before},
+        after={"role": role, "member_id": member.id, "email": user.email},
+    )
+    db.commit()
+    return {"status": "ok", "member_id": member.id, "email": user.email, "role": user.role}
