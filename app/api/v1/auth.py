@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.audit import write_audit
 from app.db import get_db
 from app.models import User, LoginAttempt
 from app.schemas import (
@@ -95,6 +96,20 @@ def login(
         user.id,
     )
 
+    write_audit(
+        db,
+        actor_user_id=user.id,
+        action="login_success",
+        entity_type="user",
+        entity_id=user.id,
+        after={
+            "email": user.email,
+            "role": user.role,
+            "must_change_password": user.must_change_password,
+        },
+        ip_address=ip,
+    )
+
     db.commit()
 
     return TokenOut(
@@ -158,6 +173,19 @@ def change_password(
         payload.current_password,
         user.password_hash,
     ):
+        write_audit(
+            db,
+            actor_user_id=user.id,
+            action="password_change_failed",
+            entity_type="user",
+            entity_id=user.id,
+            after={
+                "reason": "incorrect_current_password",
+            },
+        )
+
+        db.commit()
+
         raise HTTPException(
             400,
             "Current password is incorrect.",
@@ -167,6 +195,19 @@ def change_password(
         payload.new_password,
         user.password_hash,
     ):
+        write_audit(
+            db,
+            actor_user_id=user.id,
+            action="password_change_failed",
+            entity_type="user",
+            entity_id=user.id,
+            after={
+                "reason": "new_password_same_as_current",
+            },
+        )
+
+        db.commit()
+
         raise HTTPException(
             400,
             "New password must be different from the current password.",
@@ -183,6 +224,20 @@ def change_password(
         user.id,
     )
 
+    write_audit(
+        db,
+        actor_user_id=user.id,
+        action="password_change_success",
+        entity_type="user",
+        entity_id=user.id,
+        before={
+            "must_change_password": True,
+        },
+        after={
+            "must_change_password": False,
+        },
+    )
+
     db.commit()
 
     return TokenOut(
@@ -192,4 +247,4 @@ def change_password(
         ),
         refresh_token=refresh,
         must_change_password=False,
-        )
+    )
